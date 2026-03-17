@@ -352,7 +352,7 @@
       border-bottom: 1px solid ${BORDER};
       font-size: 11px;
       display: flex; align-items: center; gap: 5px;
-      overflow: hidden; flex-wrap: nowrap;
+      flex-wrap: nowrap; overflow: visible;
     }
     .Zpv {
       display: inline-flex; align-items: center; gap: 3px;
@@ -498,11 +498,16 @@
     return a;
   };
 
-  // Called after popup is in DOM — hides text spans if buttons overflow the bar
+  // Called after popup is in DOM — hides text spans if buttons overflow the bar.
+  // Uses getBoundingClientRect() on the last button vs the bar's right edge
+  // because overflow:hidden makes scrollWidth useless for detection.
   const collapseIfOverflow = bar => {
     if (!bar) return;
-    // scrollWidth > clientWidth means content is wider than container
-    if (bar.scrollWidth > bar.clientWidth + 2) {
+    const btns = bar.querySelectorAll('.Zpv');
+    if (!btns.length) return;
+    const barRect  = bar.getBoundingClientRect();
+    const lastRect = btns[btns.length - 1].getBoundingClientRect();
+    if (lastRect.right > barRect.right - 4) {
       bar.querySelectorAll('.Zpvt').forEach(t => { t.style.display = 'none'; });
     }
   };
@@ -546,10 +551,11 @@
   pop.append(bd);
   d.body.append(pop);
 
-  // After render: collapse preview bar text to icons if buttons overflow
-  requestAnimationFrame(() => {
+  // Wait for browser to finish layout before measuring.
+  // setTimeout(0) is more reliable than rAF for post-render measurement.
+  setTimeout(() => {
     collapseIfOverflow(d.getElementById('_tpv'));
-  });
+  }, 0);
 
   // ─── BUTTON FACTORY ───────────────────────────────────────────────────────
   const mkBtn = (label, color, fn) => {
