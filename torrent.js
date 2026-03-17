@@ -352,7 +352,7 @@
       border-bottom: 1px solid ${BORDER};
       font-size: 11px;
       display: flex; align-items: center; gap: 5px;
-      flex-wrap: nowrap; overflow: visible;
+      flex-wrap: nowrap; overflow: hidden;
     }
     .Zpv {
       display: inline-flex; align-items: center; gap: 3px;
@@ -498,18 +498,19 @@
     return a;
   };
 
-  // Called after popup is in DOM — hides text spans if buttons overflow the bar.
-  // Uses getBoundingClientRect() on the last button vs the bar's right edge
-  // because overflow:hidden makes scrollWidth useless for detection.
+  // Collapse preview bar text to icons if buttons don't fit on one line.
+  // Temporarily sets overflow:visible to get accurate scrollWidth,
+  // then restores overflow:hidden. Uses 80ms delay for mobile layout completion.
   const collapseIfOverflow = bar => {
     if (!bar) return;
-    const btns = bar.querySelectorAll('.Zpv');
-    if (!btns.length) return;
-    const barRect  = bar.getBoundingClientRect();
-    const lastRect = btns[btns.length - 1].getBoundingClientRect();
-    if (lastRect.right > barRect.right - 4) {
-      bar.querySelectorAll('.Zpvt').forEach(t => { t.style.display = 'none'; });
-    }
+    setTimeout(() => {
+      bar.style.overflow = 'visible';
+      const overflowing = bar.scrollWidth > bar.clientWidth + 2;
+      bar.style.overflow = 'hidden';
+      if (overflowing) {
+        bar.querySelectorAll('.Zpvt').forEach(t => { t.style.display = 'none'; });
+      }
+    }, 80);
   };
 
   // Narrator / preview bar (audiobooks)
@@ -551,11 +552,8 @@
   pop.append(bd);
   d.body.append(pop);
 
-  // Wait for browser to finish layout before measuring.
-  // setTimeout(0) is more reliable than rAF for post-render measurement.
-  setTimeout(() => {
-    collapseIfOverflow(d.getElementById('_tpv'));
-  }, 0);
+  // Collapse preview bar buttons to icon-only if they don't fit
+  collapseIfOverflow(d.getElementById('_tpv'));
 
   // ─── BUTTON FACTORY ───────────────────────────────────────────────────────
   const mkBtn = (label, color, fn) => {
