@@ -356,13 +356,13 @@
     }
     .Zpv {
       display: inline-flex; align-items: center; gap: 3px;
-      padding: 3px 7px; border-radius: 4px;
+      padding: 3px 8px; border-radius: 4px;
       font-size: 11px; font-weight: 600;
       text-decoration: none; white-space: nowrap;
-      flex-shrink: 1; min-width: 24px; overflow: hidden;
+      flex-shrink: 0;
     }
     .Zpvi { flex-shrink: 0; }
-    .Zpvt { overflow: hidden; flex-shrink: 1; max-width: 72px; }
+    .Zpvt { flex-shrink: 0; }
     #_tnf {
       padding: 7px 14px;
       background: ${PVBG};
@@ -483,69 +483,73 @@
 
   pop.append(hdr, infoBar);
 
+  // Shared preview bar link factory
+  // Each button has a fixed icon span + collapsible text span
+  // After all bars are built, collapseIfOverflow() is called to hide
+  // text spans on any bar whose buttons exceed its width
+  const mkLink = (ico, lbl, bg, fg, url) => {
+    const a = C('a');
+    a.href = url; a.target = '_blank';
+    a.className = 'Zpv';
+    a.style.cssText = `background:${bg};color:${fg}`;
+    const iEl = C('span'); iEl.className = 'Zpvi'; iEl.textContent = ico;
+    const tEl = C('span'); tEl.className = 'Zpvt'; tEl.textContent = lbl;
+    a.append(iEl, tEl);
+    return a;
+  };
+
+  // Called after popup is in DOM — hides text spans if buttons overflow the bar
+  const collapseIfOverflow = bar => {
+    if (!bar) return;
+    // scrollWidth > clientWidth means content is wider than container
+    if (bar.scrollWidth > bar.clientWidth + 2) {
+      bar.querySelectorAll('.Zpvt').forEach(t => { t.style.display = 'none'; });
+    }
+  };
+
   // Narrator / preview bar (audiobooks)
   if (ct === 'ab' && TG) {
-    // Audible & Goodreads use title + narrator
     const kwAud = encodeURIComponent((TG + (NR ? ' ' + NR : '')).slice(0, 70));
-    // Google search: "Title" "Narrator" audiobook unabridged — quotes give exact matches
-    const cleanTitle    = TG.replace(/\s*[\(\[].*?[\)\]]/g, '').trim(); // strip year/edition in brackets
-    const googleABQuery = encodeURIComponent(
-      `"${cleanTitle}"${NR ? ` "${NR}"` : ''} audiobook`
-    );
+    const cleanTitle    = TG.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
+    const googleABQuery = encodeURIComponent(`"${cleanTitle}"${NR ? ` "${NR}"` : ''} audiobook`);
     const pvBar = C('div');
     pvBar.id = '_tpv';
     if (NR) {
       const nrSpan = C('span');
-      nrSpan.style.cssText = `font-size:10px;color:${STXT};font-weight:600;flex-shrink:0`;
-      nrSpan.textContent = '👤 ' + NR.split(' ').slice(0, 3).join(' ');
+      nrSpan.style.cssText = `font-size:10px;color:${STXT};font-weight:600;flex-shrink:0;margin-right:2px`;
+      nrSpan.textContent = '👤 ' + NR.split(' ').slice(0, 2).join(' ');
       pvBar.append(nrSpan);
     }
-    const mkLink = (ico, lbl, bg, fg, url) => {
-      const a = C('a');
-      a.href = url; a.target = '_blank';
-      a.className = 'Zpv';
-      a.style.cssText = `background:${bg};color:${fg}`;
-      const iEl = C('span'); iEl.className = 'Zpvi'; iEl.textContent = ico;
-      const tEl = C('span'); tEl.className = 'Zpvt'; tEl.textContent = lbl;
-      a.append(iEl, tEl);
-      return a;
-    };
     pvBar.append(
-      mkLink('📖', ' Audible',    '#e67e22', '#fff', 'https://www.audible.com/search?keywords=' + kwAud),
-      mkLink('📚', ' Goodreads',  '#553b08', '#fff', 'https://www.goodreads.com/search?q=' + kwAud),
-      mkLink('🔍', ' Google',     '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleABQuery)
+      mkLink('📖', ' Audible',   '#e67e22', '#fff', 'https://www.audible.com/search?keywords=' + kwAud),
+      mkLink('📚', ' Goodreads', '#553b08', '#fff', 'https://www.goodreads.com/search?q=' + kwAud),
+      mkLink('🔍', ' Google',    '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleABQuery)
     );
     pop.append(pvBar);
   }
 
   // Movie preview bar
   if (ct === 'mv' && TG) {
-    const cleanTitle     = TG.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
-    const kw             = encodeURIComponent(cleanTitle.slice(0, 70));
-    // Google: "Title" film review — quotes + "film" forces movie results, not books/music
-    const googleMVQuery  = encodeURIComponent(`"${cleanTitle}" film`);
+    const cleanTitle    = TG.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
+    const kw            = encodeURIComponent(cleanTitle.slice(0, 70));
+    const googleMVQuery = encodeURIComponent(`"${cleanTitle}" film`);
     const pvBar = C('div');
     pvBar.id = '_tpv';
-    const mkLink = (ico, lbl, bg, fg, url) => {
-      const a = C('a');
-      a.href = url; a.target = '_blank';
-      a.className = 'Zpv';
-      a.style.cssText = `background:${bg};color:${fg}`;
-      const iEl = C('span'); iEl.className = 'Zpvi'; iEl.textContent = ico;
-      const tEl = C('span'); tEl.className = 'Zpvt'; tEl.textContent = lbl;
-      a.append(iEl, tEl);
-      return a;
-    };
     pvBar.append(
-      mkLink('🎬', ' IMDb',       '#f5c518', '#000', 'https://www.imdb.com/find?q=' + kw),
-      mkLink('▶',  ' Trailer',    '#c0392b', '#fff', 'https://www.youtube.com/results?search_query=' + kw + '+official+trailer'),
-      mkLink('🔍', ' Google',     '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleMVQuery)
+      mkLink('🎬', ' IMDb',    '#f5c518', '#000', 'https://www.imdb.com/find?q=' + kw),
+      mkLink('▶',  ' Trailer', '#c0392b', '#fff', 'https://www.youtube.com/results?search_query=' + kw + '+official+trailer'),
+      mkLink('🔍', ' Google',  '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleMVQuery)
     );
     pop.append(pvBar);
   }
 
   pop.append(bd);
   d.body.append(pop);
+
+  // After render: collapse preview bar text to icons if buttons overflow
+  requestAnimationFrame(() => {
+    collapseIfOverflow(d.getElementById('_tpv'));
+  });
 
   // ─── BUTTON FACTORY ───────────────────────────────────────────────────────
   const mkBtn = (label, color, fn) => {
