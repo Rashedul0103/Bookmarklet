@@ -351,8 +351,18 @@
       background: ${PVBG};
       border-bottom: 1px solid ${BORDER};
       font-size: 11px;
-      display: flex; align-items: center; gap: 8px;
+      display: flex; align-items: center; gap: 5px;
+      overflow: hidden; flex-wrap: nowrap;
     }
+    .Zpv {
+      display: inline-flex; align-items: center; gap: 3px;
+      padding: 3px 7px; border-radius: 4px;
+      font-size: 11px; font-weight: 600;
+      text-decoration: none; white-space: nowrap;
+      flex-shrink: 1; min-width: 24px; overflow: hidden;
+    }
+    .Zpvi { flex-shrink: 0; }
+    .Zpvt { overflow: hidden; flex-shrink: 1; max-width: 72px; }
     #_tnf {
       padding: 7px 14px;
       background: ${PVBG};
@@ -490,17 +500,20 @@
       nrSpan.textContent = '👤 ' + NR.split(' ').slice(0, 3).join(' ');
       pvBar.append(nrSpan);
     }
-    const mkLink = (txt, bg, fg, url) => {
+    const mkLink = (ico, lbl, bg, fg, url) => {
       const a = C('a');
       a.href = url; a.target = '_blank';
-      a.style.cssText = `padding:3px 9px;background:${bg};color:${fg};border-radius:4px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap`;
-      a.textContent = txt;
+      a.className = 'Zpv';
+      a.style.cssText = `background:${bg};color:${fg}`;
+      const iEl = C('span'); iEl.className = 'Zpvi'; iEl.textContent = ico;
+      const tEl = C('span'); tEl.className = 'Zpvt'; tEl.textContent = lbl;
+      a.append(iEl, tEl);
       return a;
     };
     pvBar.append(
-      mkLink('📖 Audible',    '#e67e22', '#fff', 'https://www.audible.com/search?keywords=' + kwAud),
-      mkLink('📚 Goodreads',  '#553b08', '#fff', 'https://www.goodreads.com/search?q=' + kwAud),
-      mkLink('🔍 Google',     '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleABQuery)
+      mkLink('📖', ' Audible',    '#e67e22', '#fff', 'https://www.audible.com/search?keywords=' + kwAud),
+      mkLink('📚', ' Goodreads',  '#553b08', '#fff', 'https://www.goodreads.com/search?q=' + kwAud),
+      mkLink('🔍', ' Google',     '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleABQuery)
     );
     pop.append(pvBar);
   }
@@ -513,17 +526,20 @@
     const googleMVQuery  = encodeURIComponent(`"${cleanTitle}" film`);
     const pvBar = C('div');
     pvBar.id = '_tpv';
-    const mkLink = (txt, bg, fg, url) => {
+    const mkLink = (ico, lbl, bg, fg, url) => {
       const a = C('a');
       a.href = url; a.target = '_blank';
-      a.style.cssText = `padding:3px 9px;background:${bg};color:${fg};border-radius:4px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap`;
-      a.textContent = txt;
+      a.className = 'Zpv';
+      a.style.cssText = `background:${bg};color:${fg}`;
+      const iEl = C('span'); iEl.className = 'Zpvi'; iEl.textContent = ico;
+      const tEl = C('span'); tEl.className = 'Zpvt'; tEl.textContent = lbl;
+      a.append(iEl, tEl);
       return a;
     };
     pvBar.append(
-      mkLink('🎬 IMDb',       '#f5c518', '#000', 'https://www.imdb.com/find?q=' + kw),
-      mkLink('▶ Trailer',     '#c0392b', '#fff', 'https://www.youtube.com/results?search_query=' + kw + '+official+trailer'),
-      mkLink('🔍 Google',     '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleMVQuery)
+      mkLink('🎬', ' IMDb',       '#f5c518', '#000', 'https://www.imdb.com/find?q=' + kw),
+      mkLink('▶',  ' Trailer',    '#c0392b', '#fff', 'https://www.youtube.com/results?search_query=' + kw + '+official+trailer'),
+      mkLink('🔍', ' Google',     '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleMVQuery)
     );
     pop.append(pvBar);
   }
@@ -539,6 +555,30 @@
     b.textContent = label;
     b.onclick = fn;
     return b;
+  };
+
+  // Toast notification — brief non-blocking message at bottom of popup
+  const showToast = msg => {
+    const existing = $('_tst');
+    if (existing) existing.remove();
+    const t = C('div');
+    t.id = '_tst';
+    t.textContent = msg;
+    t.style.cssText = `
+      position:fixed;bottom:70px;left:50%;transform:translateX(-50%);
+      background:rgba(0,0,0,0.82);color:#fff;padding:7px 16px;
+      border-radius:20px;font-size:12px;z-index:2147483647;
+      pointer-events:none;white-space:nowrap;
+      animation:_tfade 2.2s ease forwards;
+    `;
+    // Inject keyframe once
+    if (!$('_tsta')) {
+      const ks = C('style'); ks.id = '_tsta';
+      ks.textContent = '@keyframes _tfade{0%{opacity:0;transform:translateX(-50%) translateY(6px)}15%{opacity:1;transform:translateX(-50%) translateY(0)}75%{opacity:1}100%{opacity:0}}';
+      d.head.append(ks);
+    }
+    d.body.append(t);
+    setTimeout(() => t.remove(), 2300);
   };
 
   // Open Sirin
@@ -557,15 +597,18 @@
     }
   };
 
-  // Android Share
+  // Android Share — navigator.share is blocked in bookmarklet context on Chrome
+  // so we copy the URL and show a brief toast notification instead
   const shareItem = item => {
     buzz();
-    if (nav.share) {
-      nav.share({ title: item.label, text: item.url, url: item.url })
-        .catch(() => {});
-    } else {
-      copy(item.url, () => alert('Copied (Share not available on this browser)'));
-    }
+    copy(item.url, () => {
+      // Try native share first (works in some browsers/versions)
+      if (nav.share) {
+        nav.share({ title: item.label, url: item.url }).catch(() => {});
+      }
+      // Always show toast so user knows it's been copied regardless
+      showToast('📋 Copied! Paste in Sirin, Seedr or any app.');
+    });
   };
 
   // ─── RENDER LINKS ─────────────────────────────────────────────────────────
@@ -590,7 +633,7 @@
 
       // Copy
       bw.append(mkBtn('Copy', '#636e72', () => {
-        copy(item.url, () => { buzz(); alert('Copied!'); });
+        copy(item.url, () => { buzz(); showToast('📋 Copied!'); });
       }));
 
       // Share (Android native share sheet)
@@ -598,7 +641,7 @@
 
       // Seedr
       bw.append(mkBtn('Seedr', '#e67e22', () => {
-        copy(item.url, () => { buzz(); w.open(SEEDR, '_blank'); });
+        copy(item.url, () => { buzz(); showToast('📋 Copied! Opening Seedr…'); w.open(SEEDR, '_blank'); });
       }));
 
       // Sirin
