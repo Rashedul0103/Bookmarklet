@@ -145,54 +145,141 @@
   });
 
   // 3. Info hash → construct magnet
+  // Uses 6 detection strategies in priority order, stops at first valid 40-char hex hash found
   let hashStr = null;
   const trackers = [];
+  const HASH_RE = /\b([a-f0-9]{40})\b/i;
+  const IS_HASH = h => /^[a-f0-9]{40}$/i.test(h);
+
+  const findHash = () => {
+
+    // ── Strategy A: XPath label → sibling element (original method) ──────────
+    // Handles: <td>Info Hash:</td><td>a1b2c3...</td>
+    try {
+      const hashLabels = [
+        'Info Hash:', 'Hash:', 'Infohash:', 'Info hash:',
+        'info_hash:', 'Torrent Hash:', 'BTH:', 'SHA1:'
+      ].map(l => `normalize-space(.)='${l}'`).join(' or ');
+      const hn = xpNode(`//*[${hashLabels}]`);
+      if (hn) {
+        // next sibling element
+        let H = hn.nextElementSibling?.textContent?.trim();
+        if (!IS_HASH(H)) H = null;
+        // text immediately after label in same parent
+        if (!H) {
+          const after = hn.parentNode?.textContent?.split(hn.textContent)[1]?.trim();
+          if (IS_HASH(after)) H = after;
+        }
+        // any 40-char hex in parent text
+        if (!H) {
+          const m = hn.parentNode?.textContent?.match(HASH_RE);
+          if (m) H = m[1];
+        }
+        if (H) return H;
+      }
+    } catch {}
+
+    // ── Strategy B: <code> tags containing exactly a hash ────────────────────
+    // Handles: <code>a1b2c3d4...</code>
+    try {
+      for (const el of d.querySelectorAll('code')) {
+        const v = el.textContent?.trim();
+        if (IS_HASH(v)) return v;
+      }
+    } catch {}
+
+    // ── Strategy C: <span> or <div> with hash-related class/id ───────────────
+    // Handles: <span class="info-hash">a1b2c3...</span>
+    //          <span id="torrent-hash">a1b2c3...</span>
+    try {
+      const sel = [
+        '[class*="hash"]', '[class*="infohash"]', '[class*="info-hash"]',
+        '[id*="hash"]',    '[id*="infohash"]',
+        '[class*="btih"]', '[id*="btih"]',
+      ].join(',');
+      for (const el of d.querySelectorAll(sel)) {
+        const v = el.textContent?.trim();
+        if (IS_HASH(v)) return v;
+        // sometimes it's inside a nested span
+        const inner = el.querySelector('span, code, b, strong');
+        if (inner && IS_HASH(inner.textContent?.trim())) return inner.textContent.trim();
+      }
+    } catch {}
+
+    // ── Strategy D: data-* attributes ────────────────────────────────────────
+    // Handles: <button data-hash="a1b2c3..." data-clipboard-text="a1b2c3...">
+    try {
+      const dataAttrs = ['data-hash', 'data-infohash', 'data-btih',
+                         'data-clipboard-text', 'data-value', 'data-copy'];
+      for (const attr of dataAttrs) {
+        const el = d.querySelector(`[${attr}]`);
+        if (!el) continue;
+        const v = el.getAttribute(attr)?.trim();
+        if (IS_HASH(v)) return v;
+      }
+    } catch {}
+
+    // ── Strategy E: <input> value fields ─────────────────────────────────────
+    // Handles: <input type="text" value="a1b2c3..." readonly>  (copy-box pattern)
+    try {
+      for (const el of d.querySelectorAll('input[type="text"], input[readonly], input[value]')) {
+        const v = el.value?.trim();
+        if (IS_HASH(v)) return v;
+      }
+    } catch {}
+
+    // ── Strategy F: last resort — scan all page text for standalone 40-char hex
+    // Handles any plaintext display of hash, but only fires if surrounded by
+    // a hash-related keyword within 120 chars (avoids false positives)
+    try {
+      const matches = [...tx.matchAll(/\b([a-f0-9]{40})\b/gi)];
+      for (const m of matches) {
+        const surrounding = tx.slice(Math.max(0, m.index - 120), m.index + 160).toLowerCase();
+        if (/hash|btih|infohash|magnet|torrent/.test(surrounding)) {
+          return m[1];
+        }
+      }
+    } catch {}
+
+    return null;
+  };
+
   try {
-    const hashLabels = [
-      "Info Hash:", "Hash:", "Infohash:", "Info hash:", "info_hash:"
-    ].map(l => `normalize-space(.)='${l}'`).join(' or ');
+    const H = findHash();
+    if (H) {
+      hashStr = H;
 
-    const hn = xpNode(`//*[${hashLabels}]`);
-    if (hn) {
-      let H = hn.nextElementSibling?.textContent?.trim();
-      if (H && !/^[a-f0-9]{40}$/i.test(H)) H = null;
-      if (!H) {
-        const pt = hn.parentNode?.textContent?.split(hn.textContent)[1]?.trim();
-        if (pt && /^[a-f0-9]{40}$/i.test(pt)) H = pt;
+      // Collect trackers — sibling elements after tracker labels
+      const trackerLabels = [
+        'Tracker:', 'Trackers:', 'Announce URL:', 'Announce:', 'Tracker URL:'
+      ].map(l => `normalize-space(.)='${l}'`).join(' or ');
+      const trIter = xpIter(`//*[${trackerLabels}]`);
+      let tn;
+      if (trIter) {
+        while ((tn = trIter.iterateNext())) {
+          const ts = tn.nextElementSibling?.textContent?.trim();
+          if (ts) trackers.push(ts);
+        }
       }
 
-      // Also try finding hash inline in same element
-      if (!H) {
-        const m = hn.parentNode?.textContent?.match(/\b([a-f0-9]{40})\b/i);
-        if (m) H = m[1];
-      }
-
-      if (H && /^[a-f0-9]{40}$/i.test(H)) {
-        hashStr = H;
-
-        // Collect trackers from page
-        const trackerLabels = [
-          "Tracker:", "Trackers:", "Announce URL:", "Announce:"
-        ].map(l => `normalize-space(.)='${l}'`).join(' or ');
-
-        const trIter = xpIter(`//*[${trackerLabels}]`);
-        let tn;
-        if (trIter) {
-          while ((tn = trIter.iterateNext())) {
-            const ts = tn.nextElementSibling?.textContent?.trim();
-            if (ts) trackers.push(ts);
-          }
+      // Also grab trackers from any <a href="udp://..."> or <a href="http://...announce">
+      d.querySelectorAll('a[href]').forEach(a => {
+        const h = a.href || '';
+        if (/^(udp|http|https):\/\/.+(announce|tracker)/i.test(h)) {
+          if (!trackers.includes(h)) trackers.push(h);
         }
+      });
 
-        // Build magnet
-        let mu = `magnet:?xt=urn:btih:${H}`;
-        if (TG) mu += `&dn=${encodeURIComponent(TG)}`;
-        trackers.forEach(t => { if (t && t.includes(':')) mu += `&tr=${encodeURIComponent(t)}`; });
+      // Build magnet
+      let mu = `magnet:?xt=urn:btih:${H}`;
+      if (TG) mu += `&dn=${encodeURIComponent(TG)}`;
+      [...new Set(trackers)].forEach(t => {
+        if (t && (t.includes(':')) ) mu += `&tr=${encodeURIComponent(t)}`;
+      });
 
-        if (!seen.has(mu)) {
-          seen.add(mu);
-          links.push({ label: `Magnet — ${T(TG || H, 36)}`, url: mu, type: 'magnet' });
-        }
+      if (!seen.has(mu)) {
+        seen.add(mu);
+        links.push({ label: `Magnet — ${T(TG || H, 36)}`, url: mu, type: 'magnet' });
       }
     }
   } catch {}
@@ -388,45 +475,56 @@
 
   // Narrator / preview bar (audiobooks)
   if (ct === 'ab' && TG) {
-    const kw = encodeURIComponent((TG + (NR ? ' ' + NR : '')).slice(0, 70));
+    // Audible & Goodreads use title + narrator
+    const kwAud = encodeURIComponent((TG + (NR ? ' ' + NR : '')).slice(0, 70));
+    // Google search: "Title" "Narrator" audiobook unabridged — quotes give exact matches
+    const cleanTitle    = TG.replace(/\s*[\(\[].*?[\)\]]/g, '').trim(); // strip year/edition in brackets
+    const googleABQuery = encodeURIComponent(
+      `"${cleanTitle}"${NR ? ` "${NR}"` : ''} audiobook`
+    );
     const pvBar = C('div');
     pvBar.id = '_tpv';
     if (NR) {
       const nrSpan = C('span');
-      nrSpan.style.cssText = `font-size:10px;color:${STXT};font-weight:600`;
+      nrSpan.style.cssText = `font-size:10px;color:${STXT};font-weight:600;flex-shrink:0`;
       nrSpan.textContent = '👤 ' + NR.split(' ').slice(0, 3).join(' ');
       pvBar.append(nrSpan);
     }
-    const audBtn = C('a');
-    audBtn.href = 'https://www.audible.com/search?keywords=' + kw;
-    audBtn.target = '_blank';
-    audBtn.style.cssText = 'padding:3px 9px;background:#e67e22;color:#fff;border-radius:4px;font-size:11px;font-weight:600;text-decoration:none';
-    audBtn.textContent = '📖 Audible';
-    const gbBtn = C('a');
-    gbBtn.href = 'https://www.goodreads.com/search?q=' + kw;
-    gbBtn.target = '_blank';
-    gbBtn.style.cssText = 'padding:3px 9px;background:#553b08;color:#fff;border-radius:4px;font-size:11px;font-weight:600;text-decoration:none';
-    gbBtn.textContent = '📚 Goodreads';
-    pvBar.append(audBtn, gbBtn);
+    const mkLink = (txt, bg, fg, url) => {
+      const a = C('a');
+      a.href = url; a.target = '_blank';
+      a.style.cssText = `padding:3px 9px;background:${bg};color:${fg};border-radius:4px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap`;
+      a.textContent = txt;
+      return a;
+    };
+    pvBar.append(
+      mkLink('📖 Audible',    '#e67e22', '#fff', 'https://www.audible.com/search?keywords=' + kwAud),
+      mkLink('📚 Goodreads',  '#553b08', '#fff', 'https://www.goodreads.com/search?q=' + kwAud),
+      mkLink('🔍 Google',     '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleABQuery)
+    );
     pop.append(pvBar);
   }
 
   // Movie preview bar
   if (ct === 'mv' && TG) {
-    const kw = encodeURIComponent(TG.slice(0, 70));
+    const cleanTitle     = TG.replace(/\s*[\(\[].*?[\)\]]/g, '').trim();
+    const kw             = encodeURIComponent(cleanTitle.slice(0, 70));
+    // Google: "Title" film review — quotes + "film" forces movie results, not books/music
+    const googleMVQuery  = encodeURIComponent(`"${cleanTitle}" film`);
     const pvBar = C('div');
     pvBar.id = '_tpv';
-    const imdbBtn = C('a');
-    imdbBtn.href = 'https://www.imdb.com/find?q=' + kw;
-    imdbBtn.target = '_blank';
-    imdbBtn.style.cssText = 'padding:3px 9px;background:#f5c518;color:#000;border-radius:4px;font-size:11px;font-weight:600;text-decoration:none';
-    imdbBtn.textContent = '🎬 IMDb';
-    const ytBtn = C('a');
-    ytBtn.href = 'https://www.youtube.com/results?search_query=' + kw + '+trailer';
-    ytBtn.target = '_blank';
-    ytBtn.style.cssText = 'padding:3px 9px;background:#c0392b;color:#fff;border-radius:4px;font-size:11px;font-weight:600;text-decoration:none';
-    ytBtn.textContent = '▶ Trailer';
-    pvBar.append(imdbBtn, ytBtn);
+    const mkLink = (txt, bg, fg, url) => {
+      const a = C('a');
+      a.href = url; a.target = '_blank';
+      a.style.cssText = `padding:3px 9px;background:${bg};color:${fg};border-radius:4px;font-size:11px;font-weight:600;text-decoration:none;white-space:nowrap`;
+      a.textContent = txt;
+      return a;
+    };
+    pvBar.append(
+      mkLink('🎬 IMDb',       '#f5c518', '#000', 'https://www.imdb.com/find?q=' + kw),
+      mkLink('▶ Trailer',     '#c0392b', '#fff', 'https://www.youtube.com/results?search_query=' + kw + '+official+trailer'),
+      mkLink('🔍 Google',     '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleMVQuery)
+    );
     pop.append(pvBar);
   }
 
@@ -537,22 +635,28 @@
     if (searchTitle) {
       const sRow = C('div');
       sRow.style.cssText = 'display:flex;gap:6px;justify-content:center;flex-wrap:wrap';
-      const abbBtn = C('a');
-      abbBtn.href = 'https://audiobookbay.lu/?s=' + searchTitle;
-      abbBtn.target = '_blank';
-      abbBtn.style.cssText = 'padding:5px 10px;background:#e67e22;color:#fff;border-radius:5px;font-size:11px;font-weight:600;text-decoration:none';
-      abbBtn.textContent = '🔍 ABB';
-      const t1337 = C('a');
-      t1337.href = 'https://1337x.to/search/' + searchTitle + '/1/';
-      t1337.target = '_blank';
-      t1337.style.cssText = 'padding:5px 10px;background:#2980b9;color:#fff;border-radius:5px;font-size:11px;font-weight:600;text-decoration:none';
-      t1337.textContent = '🔍 1337x';
-      const tpbBtn = C('a');
-      tpbBtn.href = 'https://thepiratebay.org/search.php?q=' + searchTitle;
-      tpbBtn.target = '_blank';
-      tpbBtn.style.cssText = 'padding:5px 10px;background:#27ae60;color:#fff;border-radius:5px;font-size:11px;font-weight:600;text-decoration:none';
-      tpbBtn.textContent = '🔍 TPB';
-      sRow.append(abbBtn, t1337, tpbBtn);
+
+      // Smart Google query based on detected content type
+      const rawTitle = (TG || d.title || '').slice(0, 60);
+      const googleQ  = ct === 'ab'
+        ? encodeURIComponent(`"${rawTitle}"${NR ? ` "${NR}"` : ''} audiobook`)
+        : ct === 'mv'
+          ? encodeURIComponent(`"${rawTitle}" film`)
+          : encodeURIComponent(`"${rawTitle}" torrent`);
+
+      const mkFallbackLink = (txt, bg, fg, url) => {
+        const a = C('a');
+        a.href = url; a.target = '_blank';
+        a.style.cssText = `padding:5px 10px;background:${bg};color:${fg};border-radius:5px;font-size:11px;font-weight:600;text-decoration:none`;
+        a.textContent = txt;
+        return a;
+      };
+      sRow.append(
+        mkFallbackLink('🔍 ABB',    '#e67e22', '#fff', 'https://audiobookbay.lu/?s=' + searchTitle),
+        mkFallbackLink('🔍 1337x',  '#2980b9', '#fff', 'https://1337x.to/search/' + searchTitle + '/1/'),
+        mkFallbackLink('🔍 TPB',    '#27ae60', '#fff', 'https://thepiratebay.org/search.php?q=' + searchTitle),
+        mkFallbackLink('🔍 Google', '#4285f4', '#fff', 'https://www.google.com/search?q=' + googleQ)
+      );
       empty.append(sRow);
     }
 
