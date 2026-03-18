@@ -54,6 +54,108 @@
     return s.length > l ? s.slice(0,l)+'…' : s;
   };
 
+  // ─── FEATURE 1: AUTO-FIND ──────────────────────────────────────
+  // Tries each method URL via fetch (no-cors), opens first that responds.
+  // Shows a spinner toast while working.
+  const autoFind = (methodURLs, label) => {
+    buzz();
+    toast('🔍 Trying methods… please wait');
+    let found = false;
+    const tries = methodURLs.map((url, i) =>
+      new Promise(resolve => {
+        setTimeout(() => {
+          fetch(url, { method: 'HEAD', mode: 'no-cors', cache: 'no-store' })
+            .then(() => resolve({ url, i }))
+            .catch(() => resolve(null));
+        }, i * 120); // stagger requests slightly
+      })
+    );
+    Promise.race(tries).then(result => {
+      if (found) return;
+      if (result?.url) {
+        found = true;
+        toast(`✅ Opening best available method…`);
+        setTimeout(() => { buzz(); w.open(result.url, '_blank'); }, 600);
+      } else {
+        toast('⚠️ All methods tried — opening first option');
+        setTimeout(() => { buzz(); w.open(methodURLs[0], '_blank'); }, 600);
+      }
+    });
+    // Fallback after 8s regardless
+    setTimeout(() => {
+      if (!found) { found = true; toast('⏱ Timeout — opening first option'); w.open(methodURLs[0], '_blank'); }
+    }, 8000);
+  };
+
+  // ─── FEATURE 2: DIRECT SAVE ────────────────────────────────────
+  // Fetches the document as a blob and triggers a browser download.
+  // Only reliable for services that return CORS headers (VDownloaders, VPDFS).
+  const directSave = async (url, filename) => {
+    buzz();
+    toast('⬇ Fetching file…');
+    try {
+      const res = await fetch(url);
+      if (!res.ok) throw new Error('Bad response');
+      const blob = await res.blob();
+      const bUrl = URL.createObjectURL(blob);
+      const a = C('a'); a.href = bUrl;
+      a.download = filename || 'document.pdf';
+      d.body.append(a); a.click(); a.remove();
+      setTimeout(() => URL.revokeObjectURL(bUrl), 5000);
+      toast('✅ Download started!');
+    } catch {
+      // CORS blocked — fall back to opening in new tab
+      toast('⚠️ Direct save blocked — opening in new tab');
+      setTimeout(() => w.open(url, '_blank'), 800);
+    }
+  };
+
+  // ─── FEATURE 3: CHECK STATUS ───────────────────────────────────
+  // Pings each service URL and updates badge next to each button.
+  // Uses no-cors so we only detect network reachability, not content.
+  const checkStatus = (methodEls, methodURLs) => {
+    buzz();
+    toast('🔍 Checking service status…');
+    methodEls.forEach((el, i) => {
+      const badge = el.querySelector('._sdl_badge');
+      if (badge) badge.textContent = '⏳';
+      fetch(methodURLs[i], { method: 'HEAD', mode: 'no-cors', cache: 'no-store' })
+        .then(() => { if (badge) { badge.textContent = '✅'; badge.style.color = '#27ae60'; } })
+        .catch(() => { if (badge) { badge.textContent = '❌'; badge.style.color = '#e74c3c'; } });
+    });
+  };
+
+  // ─── FEATURE 5: READER MODE ────────────────────────────────────
+  // Opens Scribd embed inside a clean reader HTML page (blob URL).
+  // User clicks the button — not automatic.
+  const openReaderMode = (embedURL, title) => {
+    buzz();
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+    <title>${title}</title>
+    <style>
+      *{margin:0;padding:0;box-sizing:border-box}
+      body{background:#f4f1ea;font-family:Georgia,serif;display:flex;flex-direction:column;height:100vh}
+      #toolbar{background:#2c3e50;color:#fff;padding:10px 16px;display:flex;align-items:center;
+        gap:12px;font-size:13px;flex-shrink:0}
+      #toolbar b{flex-grow:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+      #toolbar button{background:#3f51b5;border:0;color:#fff;padding:5px 12px;
+        border-radius:4px;cursor:pointer;font-size:12px;white-space:nowrap}
+      #toolbar button:hover{background:#303f9f}
+      iframe{flex-grow:1;border:0;width:100%}
+    </style></head><body>
+    <div id="toolbar">
+      <b>📖 ${title}</b>
+      <button onclick="document.querySelector('iframe').requestFullscreen()">⛶ Fullscreen</button>
+      <button onclick="window.print()">🖨 Print</button>
+    </div>
+    <iframe src="${embedURL}" allowfullscreen></iframe>
+    </body></html>`;
+    const blob = new Blob([html], { type: 'text/html' });
+    const bUrl = URL.createObjectURL(blob);
+    w.open(bUrl, '_blank');
+    setTimeout(() => URL.revokeObjectURL(bUrl), 30000);
+  };
+
   // ─── URL DETECTION ─────────────────────────────────────────────
   const parseScribd = url => {
     const m = url.match(/scribd\.com\/(document|doc|presentation|book)\/(\d+)/i);
@@ -75,15 +177,21 @@
   const scribdMethods = [
     {
       label: '⚡ VDownloaders',
-      color: '#e74c3c',
+      color: '#e74c3c', direct: true,
       desc:  'Instant domain-swap — fastest, most reliable method',
       url:   (id, type) => `https://scribd.vdownloaders.com/${type||'document'}/${id}/x`,
     },
     {
       label: '📄 VPDFS',
-      color: '#8e44ad',
+      color: '#8e44ad', direct: true,
       desc:  'Clean PDF via scribd.vpdfs.com — no ads',
       url:   (id, type) => `https://scribd.vpdfs.com/${type||'document'}/${id}/x`,
+    },
+    {
+      label: '📑 PDFDownloaders',
+      color: '#c0392b',
+      desc:  'scribd.pdfdownloaders.com — reliable, unlimited downloads',
+      url:   (id) => `https://scribd.pdfdownloaders.com/?url=https://scribd.com/document/${id}`,
     },
     {
       label: '⬇ DocDownloader',
@@ -92,27 +200,33 @@
       url:   (id) => `https://docdownloader.com/scribd?url=https://scribd.com/document/${id}`,
     },
     {
-      label: '📑 ScribdDL',
+      label: '📥 DownloadScribd',
       color: '#2980b9',
-      desc:  'Simple clean interface — 2 clicks to download',
+      desc:  'downloadscribd.com — clean interface, fast',
+      url:   (id) => `https://downloadscribd.com/?url=https://scribd.com/document/${id}`,
+    },
+    {
+      label: '📑 ScribdDL',
+      color: '#16a085',
+      desc:  'scribddownloader.id — simple 2-click download',
       url:   (id) => `https://scribddownloader.id/?url=https://scribd.com/document/${id}`,
     },
     {
       label: '📥 DLScrib',
-      color: '#16a085',
-      desc:  'Alternative PDF downloader',
+      color: '#7f8c8d',
+      desc:  'dlscrib.pro — alternative PDF downloader',
       url:   (id) => `https://dlscrib.pro/download?url=https://scribd.com/document/${id}`,
     },
     {
       label: '👁 Embed View',
-      color: SCRIBD_CLR,
+      color: SCRIBD_CLR, viewOnly: true,
       desc:  'Full document view in Scribd embed — no login needed',
       url:   (id) => `https://www.scribd.com/embeds/${id}/content?start_page=1&view_mode=scroll&access_key=key-fFexxf7r1bzEfWu3HKwf`,
     },
     {
       label: '🕰 Wayback',
-      color: '#e67e22',
-      desc:  'Internet Archive cached version',
+      color: '#e67e22', viewOnly: true,
+      desc:  'Internet Archive cached version — last resort',
       url:   (id) => `https://web.archive.org/web/*/scribd.com/document/${id}`,
     },
   ];
@@ -169,9 +283,10 @@
         cursor:pointer;line-height:1;padding:0 2px;flex-shrink:0}
       #_sdl_cx:hover{color:#fff}
       #_sdl_inf{padding:6px 14px;background:${INFOBG};border-bottom:1px solid ${BORDER};
-        font-size:11px;color:${STXT};display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-      #_sdl_cp{margin-left:auto;padding:2px 8px;background:${accent};
-        color:#fff;border:0;border-radius:3px;font-size:10px;cursor:pointer}
+        font-size:11px;color:${STXT};display:flex;align-items:center;gap:5px;flex-wrap:wrap}
+      ._sdl_ib{padding:2px 8px;border:0;border-radius:3px;color:#fff;
+        font-size:10px;cursor:pointer;white-space:nowrap;font-weight:600}
+      ._sdl_badge{font-size:10px;margin-left:4px;font-weight:700}
       #_sdl_bd{overflow-y:auto;flex-grow:1}
       .Sm{padding:9px 14px;border-bottom:1px solid ${BORDER};background:${CARD};
         display:flex;align-items:center;gap:10px}
@@ -196,11 +311,12 @@
   };
 
   // ─── BUILD METHODS POPUP ───────────────────────────────────────
-  const buildMethodsPopup = ({ title, subtitle, accent, copyURL, methods }) => {
+  const buildMethodsPopup = ({ title, subtitle, accent, copyURL, methods, extras }) => {
     injectStyles(accent);
     $(POP)?.remove();
     const pop = C('div'); pop.id = POP;
 
+    // Header
     const hdr = C('div'); hdr.id = '_sdl_hdr';
     const htxt = C('div');
     htxt.innerHTML = `<b>${subtitle}</b><small>${truncate(title,50)}</small>`;
@@ -208,26 +324,84 @@
     cx.textContent = '×'; cx.onclick = () => pop.remove();
     hdr.append(htxt, cx);
 
+    // Info bar — action buttons
     const inf = C('div'); inf.id = '_sdl_inf';
-    inf.textContent = 'Try each method — if one fails, try the next:';
+
+    const mkIB = (label, bg, fn) => {
+      const b = C('button'); b.className = '_sdl_ib';
+      b.style.background = bg; b.textContent = label; b.onclick = fn;
+      return b;
+    };
+
+    // Copy URL
     if (copyURL) {
-      const cpBtn = C('button'); cpBtn.id = '_sdl_cp';
-      cpBtn.textContent = '📋 Copy URL';
-      cpBtn.onclick = () => {
-        buzz();
-        nav.clipboard?.writeText(copyURL).then(() => toast('📋 URL copied!'));
-      };
-      inf.append(cpBtn);
+      inf.append(mkIB('📋 Copy URL', accent, () => {
+        buzz(); nav.clipboard?.writeText(copyURL).then(() => toast('📋 URL copied!'));
+      }));
     }
 
+    // Auto-find — tries all method URLs, opens best
+    if (extras?.autoURLs?.length) {
+      inf.append(mkIB('⚡ Auto Find', '#27ae60', () => autoFind(extras.autoURLs, title)));
+    }
+
+    // Check status — pings all services
+    if (extras?.rowEls && extras?.allURLs) {
+      inf.append(mkIB('🔍 Check Status', '#8e44ad', () => checkStatus(extras.rowEls, extras.allURLs)));
+    }
+
+    // Google Scholar
+    if (extras?.scholarQuery) {
+      inf.append(mkIB('🎓 Scholar', '#4285f4', () => {
+        buzz(); w.open('https://scholar.google.com/scholar?q=' + encodeURIComponent(extras.scholarQuery), '_blank');
+      }));
+    }
+
+    // Reader mode (Scribd embed only)
+    if (extras?.embedURL) {
+      inf.append(mkIB('📖 Reader Mode', '#e67e22', () => openReaderMode(extras.embedURL, title)));
+    }
+
+    // Body — method rows
     const bd = C('div'); bd.id = '_sdl_bd';
-    methods.forEach(({ label, color, desc, onclick }) => {
+    const rowEls = [];
+    const allURLs = [];
+
+    methods.forEach(({ label, color, desc, onclick, url, directURL, filename }) => {
       const row = C('div'); row.className = 'Sm';
+
       const btn = C('button'); btn.className = 'Smb';
-      btn.style.background = color; btn.textContent = label; btn.onclick = onclick;
-      const dsc = C('div'); dsc.className = 'Smd'; dsc.textContent = desc;
-      row.append(btn, dsc); bd.append(row);
+      btn.style.background = color; btn.textContent = label;
+      btn.onclick = onclick;
+
+      // Status badge — updated by checkStatus()
+      const badge = C('span'); badge.className = '_sdl_badge'; badge.textContent = '○';
+      btn.append(badge);
+
+      const dsc = C('div'); dsc.className = 'Smd';
+      dsc.textContent = desc;
+
+      // Direct Save button (only if directURL provided)
+      if (directURL) {
+        const svBtn = C('button'); svBtn.className = 'Smb';
+        svBtn.style.cssText = 'background:#27ae60;margin-left:auto;flex-shrink:0';
+        svBtn.textContent = '⬇ Save';
+        svBtn.onclick = e => { e.stopPropagation(); directSave(directURL, filename); };
+        row.append(btn, dsc, svBtn);
+      } else {
+        row.append(btn, dsc);
+      }
+
+      bd.append(row);
+      rowEls.push(row);
+      if (url) allURLs.push(url);
     });
+
+    // Wire check status now that rowEls is populated
+    const statusBtn = inf.querySelector('._sdl_ib:nth-child(3)');
+    if (statusBtn && extras?.autoURLs) {
+      statusBtn.onclick = () => checkStatus(rowEls, allURLs);
+    }
 
     pop.append(hdr, inf, bd);
     d.body.append(pop);
@@ -235,24 +409,53 @@
   };
 
   // ─── SCRIBD POPUP ──────────────────────────────────────────────
-  const showScribd = (id, type, title, fullURL) => buildMethodsPopup({
-    title, subtitle: '📜 Scribd Downloader',
-    accent: SCRIBD_CLR, copyURL: fullURL,
-    methods: scribdMethods.map(m => ({
-      label: m.label, color: m.color, desc: m.desc,
-      onclick: () => openURL(m.url(id, type)),
-    })),
-  });
+  const showScribd = (id, type, title, fullURL) => {
+    const cleanTitle = title.replace(/\s*[\(\[].{0,20}[\)\]]/g,'').replace(/\s{2,}/g,' ').trim();
+    const embedURL   = `https://www.scribd.com/embeds/${id}/content?start_page=1&view_mode=scroll&access_key=key-fFexxf7r1bzEfWu3HKwf`;
+
+    buildMethodsPopup({
+      title: cleanTitle,
+      subtitle: '📜 Scribd Downloader',
+      accent: SCRIBD_CLR,
+      copyURL: fullURL,
+      extras: {
+        autoURLs:    scribdMethods.filter(m=>!m.viewOnly).map(m => m.url(id, type)),
+        scholarQuery: cleanTitle,
+        embedURL,
+      },
+      methods: scribdMethods.map(m => ({
+        label:      m.label,
+        color:      m.color,
+        desc:       m.desc,
+        url:        m.url(id, type),
+        directURL:  m.direct ? m.url(id, type) : null,
+        filename:   `${cleanTitle.slice(0,40)}.pdf`,
+        onclick:    () => openURL(m.url(id, type)),
+      })),
+    });
+  };
 
   // ─── SLIDESHARE POPUP ──────────────────────────────────────────
-  const showSlide = (slug, title, fullURL) => buildMethodsPopup({
-    title, subtitle: '📊 SlideShare Downloader',
-    accent: SLIDES_CLR, copyURL: fullURL,
-    methods: slideMethods.map(m => ({
-      label: m.label, color: m.color, desc: m.desc,
-      onclick: () => openURL(m.url(slug, fullURL)),
-    })),
-  });
+  const showSlide = (slug, title, fullURL) => {
+    const cleanTitle = title.replace(/\s*[\(\[].{0,20}[\)\]]/g,'').replace(/\s{2,}/g,' ').trim();
+    buildMethodsPopup({
+      title: cleanTitle,
+      subtitle: '📊 SlideShare Downloader',
+      accent: SLIDES_CLR,
+      copyURL: fullURL,
+      extras: {
+        autoURLs:    slideMethods.map(m => m.url(slug, fullURL)),
+        scholarQuery: cleanTitle,
+      },
+      methods: slideMethods.map(m => ({
+        label:   m.label,
+        color:   m.color,
+        desc:    m.desc,
+        url:     m.url(slug, fullURL),
+        onclick: () => openURL(m.url(slug, fullURL)),
+      })),
+    });
+  };
 
   // ─── LINK SCAN POPUP ───────────────────────────────────────────
   const showLinkList = (scribdLinks, slideLinks) => {
