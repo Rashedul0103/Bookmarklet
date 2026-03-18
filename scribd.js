@@ -87,28 +87,7 @@
     }, 8000);
   };
 
-  // ─── FEATURE 2: DIRECT SAVE ────────────────────────────────────
-  // Fetches the document as a blob and triggers a browser download.
-  // Only reliable for services that return CORS headers (VDownloaders, VPDFS).
-  const directSave = async (url, filename) => {
-    buzz();
-    toast('⬇ Fetching file…');
-    try {
-      const res = await fetch(url);
-      if (!res.ok) throw new Error('Bad response');
-      const blob = await res.blob();
-      const bUrl = URL.createObjectURL(blob);
-      const a = C('a'); a.href = bUrl;
-      a.download = filename || 'document.pdf';
-      d.body.append(a); a.click(); a.remove();
-      setTimeout(() => URL.revokeObjectURL(bUrl), 5000);
-      toast('✅ Download started!');
-    } catch {
-      // CORS blocked — fall back to opening in new tab
-      toast('⚠️ Direct save blocked — opening in new tab');
-      setTimeout(() => w.open(url, '_blank'), 800);
-    }
-  };
+  // (Direct save handled inline via anchor download attribute — no fetch needed)
 
   // ─── FEATURE 3: CHECK STATUS ───────────────────────────────────
   // Pings each service URL and updates badge next to each button.
@@ -265,47 +244,105 @@
     },
   ];
 
+  // ─── MOBILE DETECTION ──────────────────────────────────────────
+  const isMobile = w.innerWidth < 700 || nav.userAgentData?.mobile
+    || /Android|iPhone|iPad/i.test(nav.userAgent);
+
   // ─── INJECT STYLES ─────────────────────────────────────────────
   const injectStyles = (accent) => {
     $(STY)?.remove();
     const st = C('style'); st.id = STY;
+
+    // Responsive values
+    const PW   = isMobile ? `calc(100vw - 16px)` : '380px';
+    const PMAX = isMobile ? '80vh' : '580px';
+    const PTOP = isMobile ? 'auto' : '8px';
+    const PBOT = isMobile ? '8px'  : 'auto';
+    const PRGT = '8px';
+    const PLFT = isMobile ? '8px'  : 'auto';
+    const BRAD = isMobile ? '14px 14px 0 0' : '12px';
+    const PAD  = isMobile ? '12px 16px' : '10px 14px';
+    const FHDR = isMobile ? '14px' : '13px';
+    const FROW = isMobile ? '13px' : '12px';
+    const PBTN = isMobile ? '8px 14px' : '5px 10px';
+    const FBTN = isMobile ? '12px' : '11px';
+    const PROW = isMobile ? '12px 16px' : '9px 14px';
+
     st.textContent = `
-      #${POP}{position:fixed;top:8px;right:8px;width:340px;max-height:560px;
-        background:${BG};color:${TXT};border-radius:12px;z-index:2147483647;
+      #${POP}{
+        position:fixed;top:${PTOP};bottom:${PBOT};right:${PRGT};left:${PLFT};
+        width:${PW};max-height:${PMAX};
+        background:${BG};color:${TXT};border-radius:${BRAD};z-index:2147483647;
         font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
-        font-size:12px;box-shadow:0 8px 32px rgba(0,0,0,.35);
-        display:flex;flex-direction:column;overflow:hidden}
-      #_sdl_hdr{background:${accent};color:#fff;padding:10px 14px;
-        display:flex;justify-content:space-between;align-items:flex-start}
-      #_sdl_hdr b{font-size:13px;line-height:1.4}
-      #_sdl_hdr small{font-size:10px;opacity:.75;display:block;margin-top:2px}
-      #_sdl_cx{background:0;border:0;color:rgba(255,255,255,.55);font-size:22px;
-        cursor:pointer;line-height:1;padding:0 2px;flex-shrink:0}
-      #_sdl_cx:hover{color:#fff}
-      #_sdl_inf{padding:6px 14px;background:${INFOBG};border-bottom:1px solid ${BORDER};
-        font-size:11px;color:${STXT};display:flex;align-items:center;gap:5px;flex-wrap:wrap}
-      ._sdl_ib{padding:2px 8px;border:0;border-radius:3px;color:#fff;
-        font-size:10px;cursor:pointer;white-space:nowrap;font-weight:600}
-      ._sdl_badge{font-size:10px;margin-left:4px;font-weight:700}
-      #_sdl_bd{overflow-y:auto;flex-grow:1}
-      .Sm{padding:9px 14px;border-bottom:1px solid ${BORDER};background:${CARD};
-        display:flex;align-items:center;gap:10px}
+        font-size:${FROW};box-shadow:0 8px 32px rgba(0,0,0,.4);
+        display:flex;flex-direction:column;overflow:hidden;
+      }
+      #_sdl_hdr{
+        background:${accent};color:#fff;padding:${PAD};
+        display:flex;justify-content:space-between;align-items:flex-start;
+        flex-shrink:0;
+      }
+      #_sdl_hdr b{font-size:${FHDR};line-height:1.4}
+      #_sdl_hdr small{font-size:${isMobile?'11px':'10px'};opacity:.8;display:block;margin-top:3px}
+      #_sdl_cx{
+        background:0;border:0;color:rgba(255,255,255,.6);
+        font-size:${isMobile?'26px':'22px'};cursor:pointer;line-height:1;
+        padding:0 2px;flex-shrink:0;min-width:${isMobile?'36px':'28px'};
+        text-align:center;
+      }
+      #_sdl_inf{
+        padding:${isMobile?'8px 16px':'6px 14px'};background:${INFOBG};
+        border-bottom:1px solid ${BORDER};
+        font-size:${isMobile?'12px':'11px'};color:${STXT};
+        display:flex;align-items:center;gap:6px;flex-wrap:wrap;flex-shrink:0;
+      }
+      ._sdl_ib{
+        padding:${isMobile?'5px 11px':'3px 8px'};border:0;border-radius:4px;color:#fff;
+        font-size:${isMobile?'11px':'10px'};cursor:pointer;white-space:nowrap;font-weight:600;
+      }
+      ._sdl_ib:active{filter:brightness(.85)}
+      ._sdl_badge{font-size:${isMobile?'11px':'10px'};margin-left:4px;font-weight:700}
+      #_sdl_tip{
+        padding:5px ${isMobile?'16px':'14px'};background:${dk?'#0a1628':'#fffbe6'};
+        border-bottom:1px solid ${BORDER};font-size:${isMobile?'11px':'10px'};
+        color:${dk?'#f0c040':'#7d6608'};line-height:1.5;flex-shrink:0;
+      }
+      #_sdl_bd{overflow-y:auto;flex-grow:1;-webkit-overflow-scrolling:touch}
+      .Sm{
+        padding:${PROW};border-bottom:1px solid ${BORDER};background:${CARD};
+        display:flex;align-items:center;gap:${isMobile?'12px':'10px'};
+      }
       .Sm:last-child{border-bottom:0}
-      .Smb{flex-shrink:0;padding:5px 10px;border:0;border-radius:5px;color:#fff;
-        font-size:11px;font-weight:600;cursor:pointer;white-space:nowrap;
-        transition:filter .15s,transform .1s}
+      .Smb{
+        flex-shrink:0;padding:${PBTN};border:0;border-radius:5px;color:#fff;
+        font-size:${FBTN};font-weight:600;cursor:pointer;white-space:nowrap;
+        transition:filter .15s,transform .1s;min-width:${isMobile?'90px':'70px'};
+        text-align:center;
+      }
       .Smb:active{transform:scale(.95);filter:brightness(.85)}
-      .Smd{font-size:10px;color:${STXT};line-height:1.4}
-      ._sep{padding:5px 14px;font-size:10px;font-weight:700;letter-spacing:.5px;
-        color:${STXT};background:${INFOBG};border-bottom:1px solid ${BORDER};text-transform:uppercase}
-      .Sl{padding:9px 14px;border-bottom:1px solid ${BORDER};background:${CARD}}
+      .Smd{font-size:${isMobile?'11px':'10px'};color:${STXT};line-height:1.5}
+      ._sep{
+        padding:${isMobile?'6px 16px':'5px 14px'};font-size:${isMobile?'11px':'10px'};
+        font-weight:700;letter-spacing:.5px;color:${STXT};background:${INFOBG};
+        border-bottom:1px solid ${BORDER};text-transform:uppercase;flex-shrink:0;
+      }
+      .Sl{padding:${PROW};border-bottom:1px solid ${BORDER};background:${CARD}}
       .Sl:last-child{border-bottom:0}
-      .Slt{font-size:11.5px;color:${TXT};margin-bottom:6px;word-break:break-word;line-height:1.4}
-      .Slb{padding:4px 9px;border:0;border-radius:4px;color:#fff;font-size:11px;
-        font-weight:600;cursor:pointer;white-space:nowrap;margin-right:4px;margin-bottom:4px;
-        display:inline-block;transition:filter .15s,transform .1s}
+      .Slt{
+        font-size:${isMobile?'12.5px':'11.5px'};color:${TXT};
+        margin-bottom:${isMobile?'8px':'6px'};word-break:break-word;line-height:1.4;
+      }
+      .Slb{
+        padding:${isMobile?'6px 12px':'4px 9px'};border:0;border-radius:4px;color:#fff;
+        font-size:${isMobile?'12px':'11px'};font-weight:600;cursor:pointer;
+        white-space:nowrap;margin-right:5px;margin-bottom:5px;
+        display:inline-block;transition:filter .15s,transform .1s;
+      }
       .Slb:active{transform:scale(.95)}
-      #_sdl_empty{padding:20px 14px;text-align:center;color:${STXT};font-size:12px;line-height:1.7}
+      #_sdl_empty{
+        padding:${isMobile?'28px 16px':'20px 14px'};text-align:center;
+        color:${STXT};font-size:${isMobile?'13px':'12px'};line-height:1.7;
+      }
     `;
     d.head.append(st);
   };
@@ -327,6 +364,10 @@
     // Info bar — action buttons
     const inf = C('div'); inf.id = '_sdl_inf';
 
+    // Tip panel — shown when Scholar is tapped to explain what it does
+    const tipPanel = C('div'); tipPanel.id = '_sdl_tip';
+    tipPanel.style.display = 'none';
+
     const mkIB = (label, bg, fn) => {
       const b = C('button'); b.className = '_sdl_ib';
       b.style.background = bg; b.textContent = label; b.onclick = fn;
@@ -335,31 +376,39 @@
 
     // Copy URL
     if (copyURL) {
-      inf.append(mkIB('📋 Copy URL', accent, () => {
+      inf.append(mkIB('📋 Copy', accent, () => {
         buzz(); nav.clipboard?.writeText(copyURL).then(() => toast('📋 URL copied!'));
       }));
     }
 
-    // Auto-find — tries all method URLs, opens best
+    // Auto-find
     if (extras?.autoURLs?.length) {
       inf.append(mkIB('⚡ Auto Find', '#27ae60', () => autoFind(extras.autoURLs, title)));
     }
 
-    // Check status — pings all services
-    if (extras?.rowEls && extras?.allURLs) {
-      inf.append(mkIB('🔍 Check Status', '#8e44ad', () => checkStatus(extras.rowEls, extras.allURLs)));
-    }
+    // Check status — wired after bd is built
+    const statusIB = mkIB('🔍 Status', '#8e44ad', () => {});
+    inf.append(statusIB);
 
-    // Google Scholar
+    // Google Scholar — shows a tip first then opens
     if (extras?.scholarQuery) {
-      inf.append(mkIB('🎓 Scholar', '#4285f4', () => {
-        buzz(); w.open('https://scholar.google.com/scholar?q=' + encodeURIComponent(extras.scholarQuery), '_blank');
-      }));
+      const schBtn = mkIB('🎓 Scholar', '#4285f4', () => {
+        const isVisible = tipPanel.style.display !== 'none';
+        if (isVisible) {
+          tipPanel.style.display = 'none';
+          buzz();
+          w.open('https://scholar.google.com/scholar?q=' + encodeURIComponent(extras.scholarQuery), '_blank');
+        } else {
+          tipPanel.style.display = 'block';
+          tipPanel.textContent = '🎓 Searches Google Scholar for this document title — finds academic papers, citations and citable versions. Tap again to open.';
+        }
+      });
+      inf.append(schBtn);
     }
 
-    // Reader mode (Scribd embed only)
+    // Reader mode
     if (extras?.embedURL) {
-      inf.append(mkIB('📖 Reader Mode', '#e67e22', () => openReaderMode(extras.embedURL, title)));
+      inf.append(mkIB('📖 Reader', '#e67e22', () => openReaderMode(extras.embedURL, title)));
     }
 
     // Body — method rows
@@ -367,26 +416,32 @@
     const rowEls = [];
     const allURLs = [];
 
-    methods.forEach(({ label, color, desc, onclick, url, directURL, filename }) => {
+    methods.forEach(({ label, color, desc, onclick, url, direct, filename }) => {
       const row = C('div'); row.className = 'Sm';
 
       const btn = C('button'); btn.className = 'Smb';
       btn.style.background = color; btn.textContent = label;
       btn.onclick = onclick;
 
-      // Status badge — updated by checkStatus()
+      // Status badge
       const badge = C('span'); badge.className = '_sdl_badge'; badge.textContent = '○';
       btn.append(badge);
 
       const dsc = C('div'); dsc.className = 'Smd';
       dsc.textContent = desc;
 
-      // Direct Save button (only if directURL provided)
-      if (directURL) {
+      // Direct Save: anchor with download attribute — no fetch needed, no CORS issue
+      if (direct) {
         const svBtn = C('button'); svBtn.className = 'Smb';
-        svBtn.style.cssText = 'background:#27ae60;margin-left:auto;flex-shrink:0';
+        svBtn.style.cssText = `background:#27ae60;margin-left:auto;flex-shrink:0;min-width:${isMobile?'70px':'60px'}`;
         svBtn.textContent = '⬇ Save';
-        svBtn.onclick = e => { e.stopPropagation(); directSave(directURL, filename); };
+        svBtn.onclick = e => {
+          e.stopPropagation(); buzz();
+          const a = C('a'); a.href = url; a.download = filename || 'document.pdf';
+          a.setAttribute('target', '_blank');
+          d.body.append(a); a.click(); a.remove();
+          toast('⬇ Download starting…');
+        };
         row.append(btn, dsc, svBtn);
       } else {
         row.append(btn, dsc);
@@ -397,13 +452,10 @@
       if (url) allURLs.push(url);
     });
 
-    // Wire check status now that rowEls is populated
-    const statusBtn = inf.querySelector('._sdl_ib:nth-child(3)');
-    if (statusBtn && extras?.autoURLs) {
-      statusBtn.onclick = () => checkStatus(rowEls, allURLs);
-    }
+    // Wire check status now that rowEls is built
+    statusIB.onclick = () => checkStatus(rowEls, allURLs);
 
-    pop.append(hdr, inf, bd);
+    pop.append(hdr, inf, tipPanel, bd);
     d.body.append(pop);
     d.addEventListener('keydown', e => e.key==='Escape' && pop.remove(), {once:true});
   };
@@ -424,13 +476,13 @@
         embedURL,
       },
       methods: scribdMethods.map(m => ({
-        label:      m.label,
-        color:      m.color,
-        desc:       m.desc,
-        url:        m.url(id, type),
-        directURL:  m.direct ? m.url(id, type) : null,
-        filename:   `${cleanTitle.slice(0,40)}.pdf`,
-        onclick:    () => openURL(m.url(id, type)),
+        label:    m.label,
+        color:    m.color,
+        desc:     m.desc,
+        url:      m.url(id, type),
+        direct:   !!m.direct,
+        filename: `${cleanTitle.slice(0,40).replace(/[^\w\s-]/g,'')}.pdf`,
+        onclick:  () => openURL(m.url(id, type)),
       })),
     });
   };
